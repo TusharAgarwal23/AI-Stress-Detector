@@ -1,20 +1,27 @@
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
-from fer import FER
 import av
 import cv2
+from huggingface_hub import hf_hub_download
+from transformers import AutoImageProcessor, AutoModelForImageClassification
+import torch
+import numpy as np
 
-# Page settings
-st.set_page_config(
-    page_title="AI Stress Detector",
-    page_icon="🤖",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Stress Detector", layout="wide")
 
 st.title("🤖 AI Stress & Emotion Detector")
-st.write("Live emotion & stress detection using FER (Streamlit Cloud Compatible).")
+st.write("Live emotion & stress detection using HSEmotion (Cloud Compatible).")
 
-# Stress scoring based on emotion
+# ------------------------ Load Model ------------------------ #
+@st.cache_resource
+def load_model():
+    processor = AutoImageProcessor.from_pretrained("HSEmotion/hsemotion-classification")
+    model = AutoModelForImageClassification.from_pretrained("HSEmotion/hsemotion-classification")
+    return processor, model
+
+processor, model = load_model()
+
+# ------------------------ Stress Function ------------------------ #
 def stress_value(emotion):
     stress_map = {
         "happy": 10,
@@ -27,31 +34,30 @@ def stress_value(emotion):
     }
     return stress_map.get(emotion, 50)
 
-# Video processor class
+# ------------------------ Video Processing ------------------------ #
 class EmotionProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.detector = FER()
-
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
-        rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        result = self.detector.detect_emotions(rgb_img)
+        inputs = processor(images=rgb, return_tensors="pt")
+        with torch.no_grad():
+            outputs = model(**inputs)
 
-        if result:
-            emotion_dict = result[0]["emotions"]
-            emotion = max(emotion_dict, key=emotion_dict.get)
+        probs = torch.nn.functional.softmax(outputs.logits, dim=1)
+        emotion_id = int(torch.argmax(probs))
+        emotion = model.config.id2label[emotion_id].lower()
 
-            stress = stress_value(emotion)
+        stress = stress_value(emotion)
 
-            cv2.putText(img, f"Emotion: {emotion}", (20, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
-            cv2.putText(img, f"Stress: {stress}%", (20, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,0), 2)
+        cv2.putText(img, f"Emotion: {emotion}", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+        cv2.putText(img, f"Stress: {stress}%", (20, 90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,0), 2)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Start webcam
+# ------------------------ Start Webcam ------------------------ #
 webrtc_streamer(
     key="camera",
     video_processor_factory=EmotionProcessor,

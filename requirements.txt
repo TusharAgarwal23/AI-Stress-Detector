@@ -1,8 +1,6 @@
 streamlit
 streamlit-webrtc
-opencv-python-headless
+fer
 av
+opencv-python-headless==4.7.0.72
 numpy
-torch
-transformers
-huggingface-hub

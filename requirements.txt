@@ -1,6 +1,6 @@
 streamlit
 streamlit-webrtc
-deepface
-av
+fer
 opencv-python-headless
+av
 numpy
